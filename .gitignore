@@ -12,6 +12,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# AI config symlinks (managed by sync-ai-config.sh)
+.claude/rules/
+.claude/settings.local.json
+!.claude/settings.json
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+secrets/
+
 # Editor directories and files
 .idea
 .vscode

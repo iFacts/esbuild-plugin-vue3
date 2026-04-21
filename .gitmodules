@@ -1,0 +1,4 @@
+[submodule ".ai-config"]
+	path = .ai-config
+	url = https://github.com/iFacts/team-ai-standards.git
+	branch = main

@@ -141,6 +141,19 @@ describe('vuePlugin integration', () => {
         expect(result.errors).toHaveLength(0);
     });
 
+    it('resolves a relative .vue import from within a .vue script block', async () => {
+        // Parent.vue contains: import Child from './Child.vue'
+        // This exercises the startsWith('.') branch of the onResolve handler
+        // when the importer is itself a .vue file (sfc-script namespace).
+        const { result, outdir } = await buildFixture('entry-parent.ts');
+        cleanupDirs.push(outdir);
+
+        expect(result.errors).toHaveLength(0);
+
+        const jsOutput = readOutput(outdir);
+        expect(jsOutput).toContain('FromChild');
+    });
+
     it('uses absolute filename in descriptor for tsconfig discovery', async () => {
         // This test verifies the design fix: sfc.parse receives an absolute filename
         // so that @vue/compiler-sfc can walk up to find tsconfig.json for type resolution.
@@ -156,6 +169,53 @@ describe('vuePlugin integration', () => {
         expect(jsOutput).toContain('__file');
         // Should NOT contain an absolute drive letter or root in __file
         expect(jsOutput).not.toMatch(/__file\s*=\s*"[A-Z]:\\/);
+    });
+});
+
+describe('.vue component imports via tsconfig path aliases', () => {
+    const cleanupDirs: string[] = [];
+    const vueAliasDir = path.resolve(fixturesDir, 'vue-alias-import');
+
+    afterAll(() => {
+        for (const dir of cleanupDirs) {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('resolves aliased .vue import when plugin path aliases are disabled (pathAliases: false)', async () => {
+        // Page.vue contains: import Button from 'components/Button.vue'
+        // 'components/*' is a tsconfig path alias → src/components/Button.vue
+        // With pathAliases: false the plugin has no alias rules of its own, so it must
+        // delegate the non-relative import to build.resolve() and let esbuild apply the
+        // tsconfig paths natively. Without the fix, getFullPath() would join the alias
+        // against the importer's directory and produce a wrong path (ENOENT).
+        const { result, outdir } = await buildFixture(
+            'vue-alias-import/entry.ts',
+            { pathAliases: false },
+            { tsconfig: path.join(vueAliasDir, 'tsconfig.json') }
+        );
+        cleanupDirs.push(outdir);
+
+        expect(result.errors).toHaveLength(0);
+
+        const jsOutput = readOutput(outdir);
+        expect(jsOutput).toContain('ClickMe');
+    });
+
+    it('resolves aliased .vue import when plugin path aliases are enabled (default)', async () => {
+        // Same scenario but with the plugin's own alias rules active. The generic
+        // onResolve handler applies the tsconfig paths and routes the import correctly.
+        const { result, outdir } = await buildFixture(
+            'vue-alias-import/entry.ts',
+            {},
+            { tsconfig: path.join(vueAliasDir, 'tsconfig.json') }
+        );
+        cleanupDirs.push(outdir);
+
+        expect(result.errors).toHaveLength(0);
+
+        const jsOutput = readOutput(outdir);
+        expect(jsOutput).toContain('ClickMe');
     });
 });
 

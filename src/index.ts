@@ -118,19 +118,46 @@ const vuePlugin = (opts: Options = {}) => <esbuild.Plugin>{
 
         // Resolve main ".vue" import
         build.onResolve({ filter: /\.vue/ }, async (args) => {
+            // Recursion guard: this handler calls build.resolve() for non-relative
+            // paths below, which re-enters this handler. Skip on the re-entry so
+            // esbuild's own resolver (tsconfig paths, node_modules, etc.) can run.
+            if (args.pluginData?.__vuePlugin_resolving) {
+                return undefined;
+            }
+
             const params = getUrlParams(args.path);
+            const namespace =
+                params.type === "script" ? "sfc-script" :
+                params.type === "template" ? "sfc-template" :
+                params.type === "style" ? "sfc-style" : "file";
+
+            // Absolute paths (virtual SFC sub-imports like "…?type=script") and
+            // relative imports ("./Foo.vue") resolve correctly with path.join.
+            if (path.isAbsolute(args.path) || args.path.startsWith('.')) {
+                return {
+                    path: getFullPath(args),
+                    namespace,
+                    pluginData: { ...args.pluginData, index: params.index }
+                };
+            }
+
+            // Non-relative, non-absolute path: could be a tsconfig path alias.
+            // Delegate to esbuild's own resolver so configured aliases are honoured.
+            const result = await build.resolve(args.path, {
+                resolveDir: args.resolveDir,
+                kind: args.kind,
+                pluginData: { ...args.pluginData, __vuePlugin_resolving: true }
+            });
+
+            if (result.errors.length > 0) {
+                return { errors: result.errors };
+            }
 
             return {
-                path: getFullPath(args),
-                namespace:
-                    params.type === "script" ? "sfc-script" :
-                    params.type === "template" ? "sfc-template" :
-                    params.type === "style" ? "sfc-style" : "file",
-                pluginData: {
-                    ...args.pluginData,
-                    index: params.index
-                }
-            }
+                path: result.path,
+                namespace,
+                pluginData: { ...args.pluginData, index: params.index }
+            };
         });
 
         // Load stub when .vue is requested
